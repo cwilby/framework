@@ -73,6 +73,8 @@ class MorphOneThrough extends MorphOneOrMany
      */
     public function newRelatedInstanceFor(Model $parent)
     {
-        return $this->related->newInstance();
+        return $this->related->newInstance()
+                    ->setAttribute($this->getForeignKeyName(), $parent->{$this->localKey})
+                    ->setAttribute($this->getMorphType(), $this->morphClass);
     }
 }
