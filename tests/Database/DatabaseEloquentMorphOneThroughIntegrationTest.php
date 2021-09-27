@@ -120,7 +120,7 @@ class MorphOneThroughTestTitle extends Eloquent
 
     public function currentChampion()
     {
-        return $this->morphOneThrough(MorphOneThroughTestTitleChampionship::class, 'champion_id');
+        return $this->morphOneThrough(MorphOneThroughTestTitleChampionship::class, 'champion');
     }
 }
 
