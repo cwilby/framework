@@ -199,9 +199,8 @@ trait HasRelationships
 
         [$type, $id] = $this->getMorphs($name, $type, $id);
 
-
+        $table = $instance->getTable();
         // dd($table);
-        $this->morphInstanceTo($name, $type, $id);
 
         $localKey = $localKey ?: $this->getKeyName();
 
