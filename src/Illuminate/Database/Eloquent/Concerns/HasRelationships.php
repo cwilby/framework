@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Database\Eloquent\Relations\MorphOneThrough;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -180,6 +181,46 @@ trait HasRelationships
     protected function newMorphOne(Builder $query, Model $parent, $type, $id, $localKey)
     {
         return new MorphOne($query, $parent, $type, $id, $localKey);
+    }
+
+    /**
+     * Define a polymorphic one-to-one relationship.
+     *
+     * @param  string  $related
+     * @param  string  $name
+     * @param  string|null  $type
+     * @param  string|null  $id
+     * @param  string|null  $localKey
+     * @return \Illuminate\Database\Eloquent\Relations\MorphOne
+     */
+    public function morphOneThrough($related, $name, $type = null, $id = null, $localKey = null)
+    {
+        $instance = $this->newRelatedInstance($related);
+
+        [$type, $id] = $this->getMorphs($name, $type, $id);
+
+
+        // dd($table);
+        $this->morphInstanceTo($name, $type, $id);
+
+        $localKey = $localKey ?: $this->getKeyName();
+
+        return $this->newMorphOneThrough($instance->newQuery(), $this, $table.'.'.$type, $table.'.'.$id, $localKey);
+    }
+
+    /**
+     * Instantiate a new MorphOneThrough relationship.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @param  \Illuminate\Database\Eloquent\Model  $parent
+     * @param  string  $type
+     * @param  string  $id
+     * @param  string  $localKey
+     * @return \Illuminate\Database\Eloquent\Relations\MorphOneThrough
+     */
+    protected function newMorphOneThrough(Builder $query, Model $parent, $type, $id, $localKey)
+    {
+        return new MorphOneThrough($query, $parent, $type, $id, $localKey);
     }
 
     /**
