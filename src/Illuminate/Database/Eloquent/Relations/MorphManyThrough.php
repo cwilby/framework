@@ -7,19 +7,15 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithDictionary;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class MorphManyThrough extends Relation
 {
-    use InteractsWithDictionary;
-
     /**
      * The "through" parent model instance.
      *
-     * @var \Illuminate\Database\Eloquent\Model
+     * @var mixed
      */
-    protected $throughParent;
+    protected $throughParents;
 
     /**
      * The far parent model instance.
@@ -34,6 +30,13 @@ class MorphManyThrough extends Relation
      * @var string
      */
     protected $firstKey;
+
+    /**
+     * The near type key on the relationship.
+     *
+     * @var string
+     */
+    protected $firstTypeKey;
 
     /**
      * The far key on the relationship.
@@ -57,27 +60,28 @@ class MorphManyThrough extends Relation
     protected $secondLocalKey;
 
     /**
-     * Create a new has many through relationship instance.
+     * Create a new morph many through relationship instance.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  \Illuminate\Database\Eloquent\Model  $farParent
-     * @param  \Illuminate\Database\Eloquent\Model  $throughParent
-     * @param  string  $firstKey
-     * @param  string  $secondKey
-     * @param  string  $localKey
-     * @param  string  $secondLocalKey
-     * @return void
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @param \Illuminate\Database\Eloquent\Model $farParent
+     * @param array $throughParents
+     * @param string $firstKey
+     * @param string $secondKey
+     * @param string $secondType
+     * @param string $localKey
+     * @param string $secondLocalKey
      */
-    public function __construct(Builder $query, Model $farParent, Model $throughParent, $firstKey, $secondKey, $localKey, $secondLocalKey)
+    public function __construct(Builder $query, Model $farParent, array $throughParents, $firstKey, $firstTypeKey, $secondKey, $localKey, $secondLocalKey)
     {
         $this->localKey = $localKey;
         $this->firstKey = $firstKey;
+        $this->firstTypeKey = $firstTypeKey;
         $this->secondKey = $secondKey;
         $this->farParent = $farParent;
-        $this->throughParent = $throughParent;
+        $this->throughParents = $throughParents;
         $this->secondLocalKey = $secondLocalKey;
 
-        parent::__construct($query, $throughParent);
+        parent::__construct($query, $farParent);
     }
 
     /**
@@ -89,52 +93,50 @@ class MorphManyThrough extends Relation
     {
         $localValue = $this->farParent[$this->localKey];
 
-        $this->performJoin();
-
         if (static::$constraints) {
-            $this->query->where($this->getQualifiedFirstKeyName(), '=', $localValue);
+            foreach ($this->throughParents as $throughParent) {
+                $this->query->whereExists(function ($query) use ($localValue, $throughParent) {
+                    $query->select(1)
+                        ->from($throughParent->getTable())
+                        ->where($this->getQualifiedFirstKeyName($throughParent), '=', $localValue)
+                        ->where($this->getQualifiedFirstKeyTypeName($throughParent), '=', $throughParent->getMorphClass());
+                });
+            }
         }
     }
 
     /**
-     * Set the join clause on the query.
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder|null  $query
-     * @return void
-     */
-    protected function performJoin(Builder $query = null)
-    {
-        $query = $query ?: $this->query;
-
-        $farKey = $this->getQualifiedFarKeyName();
-
-        $query->join($this->throughParent->getTable(), $this->getQualifiedParentKeyName(), '=', $farKey);
-
-        if ($this->throughParentSoftDeletes()) {
-            $query->withGlobalScope('SoftDeletableHasManyThrough', function ($query) {
-                $query->whereNull($this->throughParent->getQualifiedDeletedAtColumn());
-            });
-        }
-    }
-
-    /**
-     * Get the fully qualified parent key name.
+     * Get the qualified foreign key on the related model.
      *
      * @return string
      */
-    public function getQualifiedParentKeyName()
+    public function getQualifiedFarKeyName()
     {
-        return $this->parent->qualifyColumn($this->secondLocalKey);
+        return $this->getQualifiedForeignKeyName();
     }
 
     /**
-     * Determine whether "through" parent of the relation uses Soft Deletes.
+     * Get the qualified foreign key on the related model.
      *
-     * @return bool
+     * @return string
      */
-    public function throughParentSoftDeletes()
+    public function getQualifiedForeignKeyName()
     {
-        return in_array(SoftDeletes::class, class_uses_recursive($this->throughParent));
+        return $this->related->qualifyColumn($this->secondKey);
+    }
+
+    public function getQualifiedFirstKeyName(Model $throughParent = null)
+    {
+        $parent = $throughParent ?: $this->parent;
+
+        return $parent->qualifyColumn($this->firstKey);
+    }
+
+    public function getQualifiedFirstKeyTypeName(Model $throughParent = null)
+    {
+        $parent = $throughParent ?: $this->parent;
+
+        return $parent->qualifyColumn($this->firstTypeKey);
     }
 
     /**
@@ -152,7 +154,7 @@ class MorphManyThrough extends Relation
     /**
      * Set the constraints for an eager load of the relation.
      *
-     * @param  array  $models
+     * @param  array $models
      * @return void
      */
     public function addEagerConstraints(array $models)
@@ -165,13 +167,6 @@ class MorphManyThrough extends Relation
         );
     }
 
-    /**
-     * Initialize the relation on a set of models.
-     *
-     * @param  array  $models
-     * @param  string  $relation
-     * @return array
-     */
     public function initRelation(array $models, $relation)
     {
         foreach ($models as $model) {
@@ -296,7 +291,7 @@ class MorphManyThrough extends Relation
      */
     public function firstOrFail($columns = ['*'])
     {
-        if (! is_null($model = $this->first($columns))) {
+        if (!is_null($model = $this->first($columns))) {
             return $model;
         }
 
@@ -363,7 +358,7 @@ class MorphManyThrough extends Relation
             if (count($result) === count(array_unique($id))) {
                 return $result;
             }
-        } elseif (! is_null($result)) {
+        } elseif (!is_null($result)) {
             return $result;
         }
 
@@ -377,9 +372,9 @@ class MorphManyThrough extends Relation
      */
     public function getResults()
     {
-        return ! is_null($this->farParent->{$this->localKey})
-                ? $this->get()
-                : $this->related->newCollection();
+        return !is_null($this->farParent->{$this->localKey})
+            ? $this->get()
+            : $this->related->newCollection();
     }
 
     /**
@@ -445,10 +440,10 @@ class MorphManyThrough extends Relation
     protected function shouldSelect(array $columns = ['*'])
     {
         if ($columns == ['*']) {
-            $columns = [$this->related->getTable().'.*'];
+            $columns = [$this->related->getTable() . '.*'];
         }
 
-        return array_merge($columns, [$this->getQualifiedFirstKeyName().' as laravel_through_key']);
+        return array_merge($columns, [$this->getQualifiedFirstKeyName() . ' as laravel_through_key']);
     }
 
     /**
@@ -589,9 +584,9 @@ class MorphManyThrough extends Relation
      */
     public function getRelationExistenceQueryForSelfRelation(Builder $query, Builder $parentQuery, $columns = ['*'])
     {
-        $query->from($query->getModel()->getTable().' as '.$hash = $this->getRelationCountHash());
+        $query->from($query->getModel()->getTable() . ' as ' . $hash = $this->getRelationCountHash());
 
-        $query->join($this->throughParent->getTable(), $this->getQualifiedParentKeyName(), '=', $hash.'.'.$this->secondKey);
+        $query->join($this->throughParent->getTable(), $this->getQualifiedParentKeyName(), '=', $hash . '.' . $this->secondKey);
 
         if ($this->throughParentSoftDeletes()) {
             $query->whereNull($this->throughParent->getQualifiedDeletedAtColumn());
@@ -600,7 +595,7 @@ class MorphManyThrough extends Relation
         $query->getModel()->setTable($hash);
 
         return $query->select($columns)->whereColumn(
-            $parentQuery->getQuery()->from.'.'.$this->localKey,
+            $parentQuery->getQuery()->from . '.' . $this->localKey,
             '=',
             $this->getQualifiedFirstKeyName()
         );
@@ -616,29 +611,19 @@ class MorphManyThrough extends Relation
      */
     public function getRelationExistenceQueryForThroughSelfRelation(Builder $query, Builder $parentQuery, $columns = ['*'])
     {
-        $table = $this->throughParent->getTable().' as '.$hash = $this->getRelationCountHash();
+        $table = $this->throughParent->getTable() . ' as ' . $hash = $this->getRelationCountHash();
 
-        $query->join($table, $hash.'.'.$this->secondLocalKey, '=', $this->getQualifiedFarKeyName());
+        $query->join($table, $hash . '.' . $this->secondLocalKey, '=', $this->getQualifiedFarKeyName());
 
         if ($this->throughParentSoftDeletes()) {
-            $query->whereNull($hash.'.'.$this->throughParent->getDeletedAtColumn());
+            $query->whereNull($hash . '.' . $this->throughParent->getDeletedAtColumn());
         }
 
         return $query->select($columns)->whereColumn(
-            $parentQuery->getQuery()->from.'.'.$this->localKey,
+            $parentQuery->getQuery()->from . '.' . $this->localKey,
             '=',
-            $hash.'.'.$this->firstKey
+            $hash . '.' . $this->firstKey
         );
-    }
-
-    /**
-     * Get the qualified foreign key on the related model.
-     *
-     * @return string
-     */
-    public function getQualifiedFarKeyName()
-    {
-        return $this->getQualifiedForeignKeyName();
     }
 
     /**
@@ -652,16 +637,6 @@ class MorphManyThrough extends Relation
     }
 
     /**
-     * Get the qualified foreign key on the "through" model.
-     *
-     * @return string
-     */
-    public function getQualifiedFirstKeyName()
-    {
-        return $this->throughParent->qualifyColumn($this->firstKey);
-    }
-
-    /**
      * Get the foreign key on the related model.
      *
      * @return string
@@ -669,16 +644,6 @@ class MorphManyThrough extends Relation
     public function getForeignKeyName()
     {
         return $this->secondKey;
-    }
-
-    /**
-     * Get the qualified foreign key on the related model.
-     *
-     * @return string
-     */
-    public function getQualifiedForeignKeyName()
-    {
-        return $this->related->qualifyColumn($this->secondKey);
     }
 
     /**
