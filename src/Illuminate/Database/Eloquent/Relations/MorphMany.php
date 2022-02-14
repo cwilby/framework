@@ -3,9 +3,12 @@
 namespace Illuminate\Database\Eloquent\Relations;
 
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithMany as InteractsWithMany;
 
 class MorphMany extends MorphOneOrMany
 {
+    use InteractsWithMany;
+
     /**
      * Get the results of the relationship.
      *

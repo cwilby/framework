@@ -26,6 +26,53 @@ class DatabaseEloquentHasManyTest extends TestCase
         $this->assertEquals($instance, $relation->make(['name' => 'taylor']));
     }
 
+    public function testSyncCreatesARelatedModelForEachNewRecord()
+    {
+        [$taylor, $colin, $brian] = $models = [
+            $this->getMockBuilder(Model::class)->setConstructorArgs([ 'id' => 1, 'name' => 'taylor' ])->onlyMethods(['update']),
+            $this->getMockBuilder(Model::class)->setConstructorArgs([ 'id' => 2, 'name' => 'colin' ])->onlyMethods(['update']),
+            $this->getMockBuilder(Model::class)->setConstructorArgs([ 'id' => 3, 'name' => 'brian' ])->onlyMethods(['delete'])
+        ];
+
+        $records = [
+            [ 'id' => 1, 'name' => 'taylor (update)' ],
+            [ 'id' => 2, 'name' => 'colin (update)' ],
+            // [ 'id' => 3, 'name' => 'brian (deleted)' ],
+            [ 'name' => 'alan' ]
+        ];
+
+        $expectedOperations = [
+            'updated' => [1, 2],
+            'deleted' => [3],
+            'created' => [4]
+        ];
+
+        $relation = $this->getRelation();
+        $relation->getRelated()->shouldReceive('getKeyName')->once()->andReturn($taylor->getKeyName());
+
+        $updateRelation = $this->getRelation();
+        $updateRelation->shouldReceive('whereIn')->with('id', [1, 2])->andReturnSelf();
+        $updateCallCount = 0;
+        $updateRelation->shouldReceive('eachById')->andReturnUsing(function ($closure) use ($models, &$updateCallCount) {
+            $closure($models[$updateCallCount]);
+            $updateCallCount++;
+            return $this;
+        });
+
+        $deleteRelation = $this->getRelation();
+        $deleteRelation->shouldReceive('whereNotIn')->with('id', [1, 2])->andReturnSelf();
+        $deleteCallCount = 0;
+        $updateRelation->shouldReceive('eachById')->andReturnUsing(function ($closure) use ($models, &$deleteCallCount) {
+            $closure($models[$deleteCallCount]);
+            $deleteCallCount++;
+            return $this;
+        });
+
+        $relation->getRelated()->shouldReceive('clone')->andReturn($updateRelation, $deleteRelation);
+
+        $taylor = $this->expectCreatedModel();
+    }
+
     public function testMakeManyCreatesARelatedModelForEachRecord()
     {
         $records = [
@@ -300,6 +347,15 @@ class DatabaseEloquentHasManyTest extends TestCase
     protected function expectCreatedModel($relation, $attributes)
     {
         $model = $this->expectNewModel($relation, $attributes);
+        $model->expects($this->once())->method('save');
+
+        return $model;
+    }
+
+    protected function expectUpdatedModel($relation, $attributes)
+    {
+        $model = $this->getMockBuilder(Model::class)->onlyMethods(['update'])->getMock();
+        $model = $this->expect($relation, $attributes);
         $model->expects($this->once())->method('save');
 
         return $model;

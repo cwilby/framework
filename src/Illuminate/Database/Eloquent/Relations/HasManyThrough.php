@@ -8,11 +8,12 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithDictionary;
+use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class HasManyThrough extends Relation
 {
-    use InteractsWithDictionary;
+    use InteractsWithDictionary, InteractsWithMany;
 
     /**
      * The "through" parent model instance.
